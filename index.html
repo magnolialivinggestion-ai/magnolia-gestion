@@ -66,6 +66,12 @@ h3{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute
 .row .main{flex:1;min-width:0}
 .row .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .s{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nota{margin-top:6px;font-size:13px;line-height:1.4;color:var(--ink);background:var(--sunk);border-radius:8px;padding:6px 9px;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:text}
+.nota .ph{color:var(--muted)}
+.nota-ed{margin-top:6px;cursor:default}
+.nota-ed textarea{width:100%;min-height:70px;font:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.nota-ed .actions{margin-top:6px;justify-content:flex-start}
+.chip.frio{background:var(--t1);color:var(--surface)}
 .row .r{text-align:right;font-size:13px;color:var(--muted);flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .contact{display:flex;gap:4px 14px;font-size:12.5px;flex-wrap:wrap}
 .cbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
@@ -509,6 +515,28 @@ const compradores=()=>(S.data.clientes||[]).filter(c=>activeCli(c)&&arr(c.rol).i
 function crucesDe(c){ const t=[],p=[]; for(const i of inmVenta()){ const m=cruce(c,i); if(m.total)t.push([i,m]); else if(m.posible)p.push([i,m]); } return {t,p}; }
 function crucesInm(i){ const t=[],p=[]; for(const c of compradores()){ const m=cruce(c,i); if(m.total)t.push([c,m]); else if(m.posible)p.push([c,m]); } return {t,p}; }
 
+/* ---- stock de agencias (hoja de captación) para cruces de segunda opción ---- */
+let STOCK_URL=null; try{ STOCK_URL=localStorage.getItem("mg_stock"); }catch{}
+const TIPO_MAP=[[/pareado/,"Pareado"],[/adosad/,"Adosado"],[/chalet|independiente/,"Chalet independiente"],[/ático|atico/,"Ático"],[/dúplex|duplex/,"Dúplex"],[/estudio|loft/,"Estudio"],[/rústic|rustic|finca/,"Casa rústica"],[/villa/,"Villa"],[/piso|apartamento|planta baja/,"Piso"]];
+const tipoStd=t=>{ const v=String(t||"").toLowerCase(); const m=TIPO_MAP.find(([re])=>re.test(v)); return m?m[1]:String(t||""); };
+async function loadStock(){
+  if(!STOCK_URL||S.stock||S.stockLoading) return; S.stockLoading=true; S.stockErr=false;
+  try{ const r=await fetch(STOCK_URL); const j=await r.json();
+    S.stock=(j.items||[]).map(x=>({...x,tipoOrig:x.tipo,tipo:tipoStd(x.tipo),muni:String(x.muni||"").replace(/\s*\(.*\)\s*$/,"").trim(),pActual:num(x.precio)}));
+  }catch(e){ S.stock=[]; S.stockErr=true; }
+  S.stockLoading=false; if(S.sheet) drawSheet();
+}
+function crucesStock(c){ const t=[],p=[]; for(const i of (S.stock||[])){ const m=cruce(c,i); if(m.total)t.push([i,m]); else if(m.posible)p.push([i,m]); } return {t,p}; }
+function stockBlock(c){
+  const h=`<div class="sec"><h3>Stock de agencias · segunda opción</h3><p class="mini">Viviendas de inmobiliarias de tus alertas, para plantear colaboración. Tira siempre antes de tu stock propio.</p>`;
+  if(!STOCK_URL) return h+`<p class="mini">Pega el enlace del stock en Ajustes para activar este cruce.</p></div>`;
+  if(!S.stock){ loadStock(); return h+`<p class="mini">Cargando stock…</p></div>`; }
+  const r=crucesStock(c);
+  const line=([i,m],pos)=>`<p><a href="${esc(i.enlace)}" target="_blank" rel="noopener">${esc([i.tipoOrig||i.tipo,i.muni].filter(Boolean).join(", "))} ↗</a> · ${eur(i.pActual)}${i.m2?" · "+i.m2+" m²":""}${i.hab?" · "+i.hab+" hab":""}${pos?` · ${Math.round(m.score*100)} % · falla: ${esc(m.falla.join(", "))}`:""}</p>`;
+  if(!r.t.length&&!r.p.length) return h+`<p class="mini">${S.stockErr?"No se pudo cargar el stock. Revisa el enlace en Ajustes.":`Nada encaja ahora mismo (${S.stock.length} viviendas de agencia en el stock).`}</p></div>`;
+  return h+(r.t.length?`<p class="mini">Encaje total</p>${r.t.map(x=>line(x,false)).join("")}`:"")+(r.p.length?`<p class="mini">Podrían interesarle (desde 75 %)</p>${r.p.slice(0,15).map(x=>line(x,true)).join("")}`:"")+`</div>`;
+}
+
 const DOCS_BASE=["Hoja de encargo / exclusiva firmada","Nota simple actualizada","Escritura de propiedad","DNI/NIE de todos los titulares","Certificado de eficiencia energética y etiqueta","Último recibo del IBI","Certificado de la comunidad (al corriente de pago)","Certificado de deuda pendiente (si hay hipoteca)"];
 const DOCS_OTROS=["Documentación de herencia (si aplica)","Sentencia o convenio de divorcio (si aplica)","Estatutos de la comunidad (si aplica)"];
 function docsPara(i){
@@ -578,8 +606,8 @@ function cliRow(c){
   const price=p?eur(precioInm(p)):(c.presu?"Hasta "+eur(c.presu):"");
   return `<div class="row ${cls}" role="button" tabindex="0" data-open="clientes:${c._id}"><i class="sq ${esc(c.temp)}" title="${esc(c.temp||"")}"></i>
    <div class="main"><div class="t">${esc(c.nombre||"Sin nombre")}${num(c.nInteg)||arr(c.integrantes).length?` <span class="chip">+${arr(c.integrantes).length} titulares</span>`:""}</div>
-   <div class="s">${esc([muni,price].filter(Boolean).join(" · "))||"&nbsp;"}</div>${contactHTML(c.tel,c.email)}</div>
-   <div class="r">${faseChip(c.fase)}${vid}<span>${c.prox?(c.accion==="Acción hoy"?`<b style="color:var(--fucsia)">${esc(fdate(c.prox))}</b>`:esc(fdate(c.prox))):""}</span></div></div>`;
+   <div class="s">${esc([muni,price].filter(Boolean).join(" · "))||"&nbsp;"}</div>${contactHTML(c.tel,c.email)}${notaHTML("clientes",c)}</div>
+   <div class="r">${esFrio(c)?chip("Captación en frío","frio"):""}${faseChip(c.fase)}${vid}<span>${c.prox?(c.accion==="Acción hoy"?`<b style="color:var(--fucsia)">${esc(fdate(c.prox))}</b>`:esc(fdate(c.prox))):""}</span></div></div>`;
 }
 const frioHoy=f=>!["Convertido","Descartado"].includes(f.estado)&&(f.estado==="Nuevo"||!f.estado||(f.prox&&f.prox<=today()));
 
@@ -617,6 +645,14 @@ function vHoy(){
    ${venc.length?`<h3>Exclusivas a punto de vencer</h3><div class="list">${venc.map(inmRow).join("")}</div>`:""}</div>
   </div>`;
 }
+const linkify=t=>esc(t).replace(/https?:\/\/[^\s<]+/g,u=>`<a href="${u}" target="_blank" rel="noopener">${/fotocasa|idealista|milanuncios|habitaclia|wallapop/.test(u)?"Ver anuncio ↗":"Abrir enlace ↗"}</a>`);
+const urlsDe=t=>String(t||"").match(/https?:\/\/[^\s]+/g)||[];
+function notaHTML(t,r){
+  const key=t+":"+r._id;
+  if(S.editNota===key) return `<div class="nota-ed" data-stop><textarea id="nota-txt" aria-label="Notas">${esc(S.notaDraft??r.notas??"")}</textarea><div class="actions"><button class="btn pri sm" data-notasave="${key}">Guardar nota</button><button class="btn sm" data-notacancel>Cancelar</button></div></div>`;
+  return `<div class="nota" data-stop data-nota="${key}" title="Pulsa para editar la nota">${r.notas?linkify(r.notas):`<span class="ph">+ Añadir nota</span>`}</div>`;
+}
+const esFrio=c=>c.origen==="Captación en frío";
 const linkNames=(r,k,t)=>arr(r[k]).map(id=>nameOf(t,id,r,k)).filter(Boolean).join(", ");
 function vClientes(rol){
   const all=(S.data.clientes||[]).filter(c=>activeCli(c)&&arr(c.rol).includes(rol));
@@ -636,7 +672,7 @@ function vClientes(rol){
 }
 function frioRow(f){
   const cls=frioHoy(f)?"hoy":["Contactado","Videollamada"].includes(f.estado)?"aldia":"";
-  return `<div class="row ${cls}" role="button" tabindex="0" data-open="frio:${f._id}"><div class="main"><div class="t">${esc(f.anuncio||"Anuncio")}</div><div class="s">${esc([f.muni,f.tipo,f.m2?f.m2+" m²":"",f.portal,f.fDet?"detectado "+fdate(f.fDet):""].filter(Boolean).join(" · "))}</div>${contactHTML(f.tel,f.email)}</div>
+  return `<div class="row ${cls}" role="button" tabindex="0" data-open="frio:${f._id}"><div class="main"><div class="t">${esc(f.anuncio||"Anuncio")}</div><div class="s">${esc([f.muni,f.tipo,f.m2?f.m2+" m²":"",f.portal,f.fDet?"detectado "+fdate(f.fDet):""].filter(Boolean).join(" · "))}</div>${contactHTML(f.tel,f.email)}${notaHTML("frio",f)}</div>
   <div class="r">${faseChip(f.estado||"Nuevo")}<b style="color:var(--ink)">${eur(f.precio)}</b>${f.url?`<a href="${esc(f.url)}" target="_blank" rel="noopener" data-stop>Ver anuncio ↗</a>`:""}</div></div>`;
 }
 function vFrio(){
@@ -652,7 +688,7 @@ function vFrio(){
 function inmRow(i){
   const pct=num(i.docTot)?Math.round(num(i.docOk)/num(i.docTot)*100):null;
   return `<div class="row" role="button" tabindex="0" data-open="inmuebles:${i._id}"><div class="main"><div class="t">${esc(i.ref||"Sin referencia")} ${i.varios?chip("Varios titulares","warn"):""}</div>
-  <div class="s">${esc([i.tipo,i.muni,i.hab?i.hab+" hab":"",i.m2?i.m2+" m²":"",linkNames(i,"prop","clientes")].filter(Boolean).join(" · "))}</div></div>
+  <div class="s">${esc([i.tipo,i.muni,i.hab?i.hab+" hab":"",i.m2?i.m2+" m²":"",linkNames(i,"prop","clientes")].filter(Boolean).join(" · "))}</div>${notaHTML("inmuebles",i)}</div>
   <div class="r">${faseChip(i.fase)}<b style="color:var(--ink)">${eur(precioInm(i))}</b><span>${pct!=null?`Docs ${pct}%`:""}${i.diasFin!=null&&num(i.diasFin)<=30&&i.fase!=="Vendido"?` · <b style="color:var(--fucsia)">exclusiva ${num(i.diasFin)} d</b>`:""}</span></div></div>`;
 }
 function vInmuebles(){
@@ -727,6 +763,7 @@ function vAjustes(){
   <div class="sec"><h3>Datos fiscales y reglas</h3>${true?`<form class="form" id="frm-config">${T.config.f.map(d=>inputFor("config",d,c[d[0]])).join("")}</form><div class="actions"><button class="btn pri" data-act="saveconfig">Guardar</button></div>`:`<div class="empty">Cargando…</div>`}
   <p class="mini">La facturación está preparada pero no se activa hasta que marques la casilla, cuando te des de alta como autónomo.</p></div>
   <div class="sec"><h3>Conexión con Baserow</h3><p class="mini">Este dispositivo está conectado con un token de Baserow guardado solo en él.</p><div class="actions" style="justify-content:flex-start"><button class="btn del" data-act="logout">Cambiar token / cerrar sesión en este dispositivo</button></div></div>
+  <div class="sec"><h3>Stock de agencias</h3><p class="mini">Enlace de la aplicación web de la hoja de captación. Activa el cruce de compradores con el stock de inmobiliarias. Se guarda en este dispositivo.</p><div class="inline"><label class="mini">Enlace<input id="stock-url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(STOCK_URL||"")}"></label><button class="btn" data-act="savestock">Guardar</button></div>${STOCK_URL?`<p class="mini">${S.stock?`Conectado · ${S.stock.length} viviendas de agencia`:S.stockErr?"No se pudo leer el enlace.":"Guardado."}</p>`:""}</div>
   <div class="sec"><h3>Plantillas y descargables</h3>
   <div class="list">${P.length?P.map(p=>`<div class="row" style="cursor:default"><div class="main"><div class="t">${esc(p.nombre)}</div><div class="s">${esc(p.cat||"")} ${/^https?:/.test(p.notas||"")?"":esc(p.notas||"")}</div></div><div class="r">${fileLinks(p.archivo)}${/^https?:/.test(p.notas||"")?`<a href="${esc(p.notas)}" target="_blank" rel="noopener">Abrir enlace ↗</a>`:""}${upBtn("plantillas",p._id,"archivo")}</div></div>`).join(""):`<div class="empty">Sin plantillas todavía.</div>`}</div>
   <div class="inline" style="margin-top:10px"><label class="mini">Nueva plantilla<input id="pl-n" placeholder="Hoja de exclusiva, documento de oferta, hoja de reserva…"></label><label class="mini">Enlace (opcional)<input id="pl-u" placeholder="https://drive.google.com/…"></label><button class="btn" data-act="addpl">Añadir</button></div>
@@ -829,7 +866,8 @@ function sheetCliente(c){
   const cr=isC?crucesDe(c):null;
   const inmChips=(l)=>l.map(i=>`<span class="chip link" data-open="inmuebles:${i._id}">${esc(i.ref||"Inmueble")} · ${esc(i.fase||"")}</span>`).join(" ");
   return `<h2><i class="sq ${esc(c.temp)}" style="display:inline-block;vertical-align:middle;margin-right:8px"></i>${esc(c.nombre||"Cliente")}</h2>
-  <div class="quick">${arr(c.rol).map(x=>chip(x,"acc")).join("")} ${faseChip(c.fase)} ${c.accion==="Acción hoy"?chip("Acción hoy","fu"):c.accion==="Al día"?chip("Al día","ok"):""} ${c.arch?chip("Archivado","bad"):""}</div>
+  <div class="quick">${esFrio(c)?chip("Captación en frío","frio"):""} ${arr(c.rol).map(x=>chip(x,"acc")).join("")} ${faseChip(c.fase)} ${c.accion==="Acción hoy"?chip("Acción hoy","fu"):c.accion==="Al día"?chip("Al día","ok"):""} ${c.arch?chip("Archivado","bad"):""}</div>
+  ${urlsDe(c.notas).length?`<p>${urlsDe(c.notas).map(u=>`<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">${/fotocasa|idealista|milanuncios|habitaclia|wallapop/.test(u)?"Ver anuncio ↗":"Abrir enlace ↗"}</a>`).join(" ")}</p>`:""}
   ${contactBtns(c.tel,c.email)}
   <div class="sec"><h3>Registrar</h3>
    <div class="quick">${["Llamada","WhatsApp","Email","Videollamada","Visita","Nota"].map(x=>`<button class="btn sm ${qf===x?"pri":""}" data-quick="${x}">${x}</button>`).join("")}</div>
@@ -840,7 +878,7 @@ function sheetCliente(c){
    ${inmP.length?`<p class="mini">En propiedad</p><p>${inmChips(inmP)}</p>`:""}${inmI.length?`<p class="mini">Interesado en</p><p>${inmChips(inmI)}</p>`:""}${inmC.length?`<p class="mini">Comprados</p><p>${inmChips(inmC)}</p>`:""}
    ${!inmP.length&&!inmI.length&&!inmC.length?`<p class="mini">Sin inmuebles vinculados.</p>`:""}
    ${isV?`<div class="actions" style="justify-content:flex-start"><button class="btn sm" data-act="mkinm">+ Nuevo inmueble de este cliente</button></div>`:""}</div>
-  ${isC?`<div class="sec"><h3>Cruces para este comprador</h3>${cr.t.length+cr.p.length?`${cr.t.length?`<p class="mini">Encaje total</p>${cr.t.map(([i])=>`<p><span class="chip link" data-open="inmuebles:${i._id}">${esc(i.ref)}</span> ${esc([i.tipo,i.muni].join(", "))} · ${eur(precioInm(i))}</p>`).join("")}`:""}${cr.p.length?`<p class="mini">Podrían interesarle (desde 75 %)</p>${cr.p.map(([i,m])=>`<p><span class="chip link" data-open="inmuebles:${i._id}">${esc(i.ref)}</span> ${Math.round(m.score*100)} % · falla: ${esc(m.falla.join(", "))}</p>`).join("")}`:""}`:`<p class="mini">Ningún inmueble en venta encaja ahora mismo.</p>`}</div>`:""}
+  ${isC?`<div class="sec"><h3>Cruces para este comprador</h3>${cr.t.length+cr.p.length?`${cr.t.length?`<p class="mini">Encaje total</p>${cr.t.map(([i])=>`<p><span class="chip link" data-open="inmuebles:${i._id}">${esc(i.ref)}</span> ${esc([i.tipo,i.muni].join(", "))} · ${eur(precioInm(i))}</p>`).join("")}`:""}${cr.p.length?`<p class="mini">Podrían interesarle (desde 75 %)</p>${cr.p.map(([i,m])=>`<p><span class="chip link" data-open="inmuebles:${i._id}">${esc(i.ref)}</span> ${Math.round(m.score*100)} % · falla: ${esc(m.falla.join(", "))}</p>`).join("")}`:""}`:`<p class="mini">Ningún inmueble en venta encaja ahora mismo.</p>`}</div>${stockBlock(c)}`:""}
   <div class="sec"><h3>Titulares / integrantes</h3>
    ${integ.length?`<div class="list">${integ.map(p=>`<div class="row" role="button" tabindex="0" data-open="integrantes:${p._id}"><div class="main"><div class="t">${esc(p.nombre)}</div><div class="s">${esc([p.dni,p.civil,p.tel].filter(Boolean).join(" · "))}</div></div><div class="r"><b style="color:var(--ink)">${p.importe?eur2(p.importe):""}</b>${p.firma?chip("Firma","ok"):""}</div></div>`).join("")}</div>`:`<p class="mini">Solo el contacto principal. Añade aquí al resto de titulares o compradores con su importe fijo.</p>`}
    <div class="actions" style="justify-content:flex-start"><button class="btn sm" data-act="addinteg">+ Añadir integrante</button></div></div>
@@ -987,6 +1025,7 @@ document.addEventListener("click",async e=>{
     await act(el,async()=>{ await update(t,id,obj); await refresh(t,"clientes","inmuebles","operaciones"); },"Guardado"); drawSheet(); return; }
   const a=d.act; const sh=S.sheet;
   if(a==="logout"){ try{localStorage.removeItem("mg_token");}catch{} location.reload(); return; }
+  if(a==="savestock"){ const v=(($("#stock-url")||{}).value||"").trim(); if(v&&!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){toast("Pega el enlace que termina en /exec");return;} try{ v?localStorage.setItem("mg_stock",v):localStorage.removeItem("mg_stock"); }catch{} STOCK_URL=v||null; S.stock=null; S.stockErr=false; await loadStock(); toast(v?(S.stockErr?"No se pudo leer el enlace":"Stock conectado · "+(S.stock||[]).length+" viviendas"):"Quitado"); render(); return; }
   if(a==="savetoken"){ const v=($("#tok")||{}).value||""; if(v.trim().length<20){toast("Pega el token completo");return;} try{localStorage.setItem("mg_token",v.trim());}catch{} location.reload(); return; } const cur=sh&&sh.id?byId(sh.t,sh.id):null;
   if(a==="loc"){ const q=$("#loc-q").value; if(q) window.open("https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q),"_blank"); return; }
   if(a==="cat"){ window.open("https://www.sedecatastro.gob.es/","_blank"); return; }
@@ -1023,7 +1062,7 @@ document.addEventListener("click",async e=>{
       await update("config",c._id||"main",{prox:n+1}); await refresh("facturas","config","operaciones"); },"Factura "+numF+" creada"); drawSheet(); return; }
   if(a==="saveconfig"){ const c=cfg(); const obj=readForm("config",c); if(!Object.keys(obj).length){toast("Sin cambios");return;} await act(el,async()=>{await update("config",c._id||"main",obj);await refresh("config");},"Guardado"); render(); return; }
   if(a==="addpl"){ const n=$("#pl-n").value.trim(); if(!n) return; await act(el,async()=>{await create("plantillas",{nombre:n,notas:$("#pl-u").value.trim()||null});await refresh("plantillas");},"Añadida"); render(); return; }
-  if(a==="convertir"){ const f=cur; await act(el,async()=>{ const id=await create("clientes",{nombre:f.anunciante||f.anuncio,rol:["Vendedor"],tel:f.tel,email:f.email,origen:"Captación en frío",fase:"Contactado",nivel:2,notas:[f.url,f.notas].filter(Boolean).join("\n")});
+  if(a==="convertir"){ const f=cur; await act(el,async()=>{ const id=await create("clientes",{nombre:f.anunciante||f.anuncio,rol:["Vendedor"],tel:f.tel,email:f.email,origen:"Captación en frío",fase:"Nuevo",nivel:1,prox:today(),notas:[f.notas,f.url].filter(Boolean).join("\n")});
       await update("frio",f._id,{estado:"Convertido",cli:[id]}); await refresh("clientes","frio"); S.newId=id; },"Convertido en vendedor"); if(S.newId) openSheet("clientes",S.newId); return; }
   if(a==="frio-cont"){ await act(el,async()=>{await update("frio",cur._id,{estado:"Contactado",prox:addDays(3)});await refresh("frio");},"Hecho"); drawSheet(); return; }
   if(a==="frio-desc"||a==="frio-inmo"){ const inmo=a==="frio-inmo";
@@ -1047,6 +1086,17 @@ document.addEventListener("change",async e=>{
 });
 document.addEventListener("input",e=>{ const c=e.target.closest("[data-calc]"); if(c){ const id=c.dataset.calc; $("#"+id+"-out").innerHTML=calcOut($("#"+id+"-p").value,$("#"+id+"-pct").value,$("#"+id+"-h").value); }});
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&S.sheet) closeSheet(); if(e.key==="Enter"&&e.target.matches(".row[role=button]")) e.target.click(); });
+/* notas editables desde los listados */
+document.addEventListener("click",async e=>{
+  if(e.target.closest("a")) return;
+  const n=e.target.closest("[data-nota]");
+  if(n){ if(!TOKEN) return; S.editNota=n.dataset.nota; S.notaDraft=null; render(); const ta=document.getElementById("nota-txt"); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); } return; }
+  if(e.target.closest("[data-notacancel]")){ S.editNota=null; S.notaDraft=null; render(); return; }
+  const b=e.target.closest("[data-notasave]");
+  if(b){ const [t,id]=b.dataset.notasave.split(":"); const v=(document.getElementById("nota-txt")||{}).value??"";
+    const ok=await act(b,async()=>{ await update(t,id,{notas:v}); },"Nota guardada"); if(ok!==false){ S.editNota=null; S.notaDraft=null; } render(); }
+});
+document.addEventListener("input",e=>{ if(e.target.id==="nota-txt") S.notaDraft=e.target.value; });
 $("#fab").addEventListener("click",()=>{
   const p={vendedores:["clientes",{rol:["Vendedor"],fase:"Nuevo",nivel:1}],compradores:["clientes",{rol:["Comprador"],fase:"Nuevo",nivel:1}],frio:["frio",{estado:"Nuevo",fDet:today()}],inmuebles:["inmuebles",{fase:"Captación"}],operaciones:["operaciones",{fase:"Oferta",pct:"5%",fOferta:today()}],agenda:["agenda",{estado:"Pendiente",prio:"Media"}]}[S.tab];
   if(p) openSheet(p[0],null,p[1]);
