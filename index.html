@@ -644,7 +644,7 @@ function vFrio(){
   let rows=all.filter(r=>!q||[r.anuncio,r.muni,r.tel,r.anunciante].join(" ").toLowerCase().includes(q));
   if(f==="activos") rows=rows.filter(r=>!["Convertido","Descartado"].includes(r.estado)); else if(f==="hoy") rows=rows.filter(frioHoy); else if(f) rows=rows.filter(r=>r.estado===f);
   rows.sort((a,b)=>(frioHoy(a)?0:1)-(frioHoy(b)?0:1)||String(b.fDet||"").localeCompare(String(a.fDet||"")));
-  return `<h2>Captación en frío</h2><p class="lede">Particulares que anuncian su vivienda. Las alertas de Idealista, Fotocasa y Milanuncios llegan a magnolialiving.gestion@gmail.com y se vuelcan aquí. También puedes añadirlos a mano.</p>${errBlock(["frio"])}
+  return `<h2>Captación en frío</h2><p class="lede">Anuncios de las alertas de los portales, volcados automáticamente cada 15 minutos. Los que marques como «Es inmobiliaria» o «Descartar» salen de la app en unos minutos y quedan guardados en la hoja de captación (stock para cruces).</p>${errBlock(["frio"])}
   <div class="tools"><input type="search" id="q-frio" placeholder="Buscar anuncio, municipio, teléfono…" value="${esc(S.q.frio||"")}"></div>
   <div class="filters">${[["activos","Activos"],["hoy","Por llamar hoy"],["Nuevo","Nuevos"],["Contactado","Contactados"],["Videollamada","Videollamada"],["Convertido","Convertidos"],["Descartado","Descartados"],["","Todos"]].map(([k,l])=>`<button aria-pressed="${f===k}" data-filt="${k}">${l}</button>`).join("")}</div>
   <div class="list" style="margin-top:10px">${rows.length?rows.map(frioRow).join(""):`<div class="empty">${all.length?"Nada con este filtro.":"Aún no ha entrado ningún anuncio."}</div>`}</div>`;
@@ -950,7 +950,7 @@ function sheetFrio(f){
   return `<h2>${esc(f.anuncio||"Anuncio")}</h2><div class="quick">${faseChip(f.estado||"Nuevo")} ${chip(f.portal)}</div>
   ${contactBtns(f.tel,f.email)}${f.url?`<p><a href="${esc(f.url)}" target="_blank" rel="noopener">Ver anuncio ↗</a></p>`:""}
   <div class="kv"><div class="big"><small>Precio</small><b>${eur(f.precio)}</b></div><div><small>Municipio</small><b>${esc(f.muni||"—")}</b></div><div><small>m² / hab.</small><b>${num(f.m2)||"—"} / ${num(f.hab)||"—"}</b></div></div>
-  <div class="actions" style="justify-content:flex-start">${arr(f.cli).length?`<span class="chip link" data-open="clientes:${arr(f.cli)[0]}">Ver cliente</span>`:`<button class="btn pri" data-act="convertir">Convertir en vendedor</button>`}<button class="btn" data-act="frio-cont">Marcar contactado</button><button class="btn" data-act="frio-desc">Descartar</button></div>
+  <div class="actions" style="justify-content:flex-start">${arr(f.cli).length?`<span class="chip link" data-open="clientes:${arr(f.cli)[0]}">Ver cliente</span>`:`<button class="btn pri" data-act="convertir">Convertir en vendedor</button>`}<button class="btn" data-act="frio-cont">Marcar contactado</button><button class="btn" data-act="frio-inmo">Es inmobiliaria</button><button class="btn del" data-act="frio-desc">Descartar</button></div>
   ${sheetForm("frio",f)}`;
 }
 
@@ -1025,7 +1025,10 @@ document.addEventListener("click",async e=>{
   if(a==="addpl"){ const n=$("#pl-n").value.trim(); if(!n) return; await act(el,async()=>{await create("plantillas",{nombre:n,notas:$("#pl-u").value.trim()||null});await refresh("plantillas");},"Añadida"); render(); return; }
   if(a==="convertir"){ const f=cur; await act(el,async()=>{ const id=await create("clientes",{nombre:f.anunciante||f.anuncio,rol:["Vendedor"],tel:f.tel,email:f.email,origen:"Captación en frío",fase:"Contactado",nivel:2,notas:[f.url,f.notas].filter(Boolean).join("\n")});
       await update("frio",f._id,{estado:"Convertido",cli:[id]}); await refresh("clientes","frio"); S.newId=id; },"Convertido en vendedor"); if(S.newId) openSheet("clientes",S.newId); return; }
-  if(a==="frio-cont"||a==="frio-desc"){ await act(el,async()=>{await update("frio",cur._id,a==="frio-cont"?{estado:"Contactado",prox:addDays(3)}:{estado:"Descartado"});await refresh("frio");},"Hecho"); drawSheet(); return; }
+  if(a==="frio-cont"){ await act(el,async()=>{await update("frio",cur._id,{estado:"Contactado",prox:addDays(3)});await refresh("frio");},"Hecho"); drawSheet(); return; }
+  if(a==="frio-desc"||a==="frio-inmo"){ const inmo=a==="frio-inmo";
+    if(!confirm(inmo?"¿Es de inmobiliaria? Saldrá de la app y quedará guardado en tu hoja de stock de agencias.":"¿Descartar este anuncio? Saldrá de la app y quedará registrado en la hoja de captación.")) return;
+    await act(el,async()=>{await update("frio",cur._id,{estado:"Descartado",notas:(inmo?"[Inmobiliaria] ":"")+(cur.notas||"")});await refresh("frio");},inmo?"Marcado como inmobiliaria":"Descartado"); drawSheet(); return; }
 });
 document.addEventListener("click",e=>{
   const b=e.target.closest("[data-upload]"); if(!b||!TOKEN) return; e.stopPropagation();
