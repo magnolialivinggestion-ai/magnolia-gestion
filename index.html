@@ -72,6 +72,19 @@ h3{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute
 .nota-ed textarea{width:100%;min-height:70px;font:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
 .nota-ed .actions{margin-top:6px;justify-content:flex-start}
 .chip.frio{background:var(--t1);color:var(--surface)}
+.rowacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.rowacts .btn{padding:5px 10px;font-size:12.5px}
+.bj{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:12px}
+.bj .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;display:flex;flex-direction:column}
+.bj .ph{aspect-ratio:4/3;background:var(--sunk);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;overflow:hidden}
+.bj .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.bj .bd{padding:10px 12px;display:flex;flex-direction:column;gap:4px;flex:1}
+.bj .pr{font-weight:700;font-size:17px}
+.bj .nt{font-size:12.5px;color:var(--muted)}
+.bj .ac{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:8px}
+.bj .ac .btn{flex:1;padding:7px 8px;font-size:13px}
+.semaforo{margin-top:10px;padding:12px 14px;border-radius:var(--r);font-weight:600}
+.semaforo.ok{background:var(--ok-soft);color:var(--ok)}.semaforo.no{background:var(--bad-soft);color:var(--bad)}
 .row .r{text-align:right;font-size:13px;color:var(--muted);flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .contact{display:flex;gap:4px 14px;font-size:12.5px;flex-wrap:wrap}
 .cbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
@@ -542,6 +555,45 @@ function stockBlock(c){
   return h+(r.t.length?`<p class="mini">Encaje total</p>${r.t.map(x=>line(x,false)).join("")}`:"")+(r.p.length?`<p class="mini">Podrían interesarle (desde 75 %)</p>${r.p.slice(0,15).map(x=>line(x,true)).join("")}`:"")+`</div>`;
 }
 
+/* ---- llamadas al script de la hoja (stock, bandeja, exclusión) ---- */
+async function script(params){
+  if(!STOCK_URL) throw new Error("Falta el enlace del script en Ajustes");
+  const q=Object.entries(params).map(([k,v])=>k+"="+encodeURIComponent(v??"")).join("&");
+  const r=await jsonp(STOCK_URL+(STOCK_URL.includes("?")?"&":"?")+q);
+  if(!r||r.ok===false) throw new Error((r&&r.error)||"El script no respondió");
+  return r;
+}
+
+/* ---- Bandeja Fotocasa: revisión rápida con foto ---- */
+async function loadBandeja(force){
+  if(!STOCK_URL||(!force&&(S.bandeja||S.bjLoading))) return; S.bjLoading=true; S.bjErr=false;
+  try{ S.bandeja=(await script({accion:"bandeja"})).items||[]; }catch(e){ S.bandeja=[]; S.bjErr=true; }
+  S.bjLoading=false; if(S.tab==="frio"&&!S.sheet) render();
+}
+function bandejaHTML(){
+  if(!S.bandeja){ loadBandeja(); return `<div class="empty">Cargando la bandeja…</div>`; }
+  const L=S.bandeja;
+  const card=b=>`<div class="card"><a class="ph" href="${esc(b.enlace)}" target="_blank" rel="noopener">${b.foto?`<img src="${esc(b.foto)}" loading="lazy" referrerpolicy="no-referrer" alt="Foto del anuncio">`:"Sin foto · abrir anuncio ↗"}</a>
+   <div class="bd"><div class="pr">${eur(b.precio)}</div><div><b>${esc(b.tipo||"")}</b> · ${esc([b.dir,b.muni].filter(Boolean).join(", "))}</div>
+   <div class="nt">${esc([b.hab?b.hab+" hab":"",b.m2?b.m2+" m²":"",b.banos?b.banos+(b.banos==1?" baño":" baños"):""].filter(Boolean).join(" · "))}${b.fecha?" · "+esc(fdate(b.fecha.slice(0,10))):""}</div>
+   ${b.notas?`<div class="nt">${esc(b.notas)}</div>`:""}<a href="${esc(b.enlace)}" target="_blank" rel="noopener" class="nt">Ver anuncio ↗</a>
+   <div class="ac"><button class="btn pri" data-bj="aceptar:${esc(b.id)}">A la app</button><button class="btn" data-bj="agencia:${esc(b.id)}">Inmobiliaria</button><button class="btn del" data-bj="descartar:${esc(b.id)}">Descartar</button></div></div></div>`;
+  return `<div class="notice info"><b>${L.length} anuncio${L.length===1?"":"s"} de Fotocasa por revisar</b>Mira la foto y decide. «A la app» lo pasa a Captación en frío; «Inmobiliaria» va al stock de agencias; «Descartar» se queda solo en la hoja.</div>
+  <div class="actions" style="justify-content:flex-start;margin-top:8px"><button class="btn sm" data-bjact="recargar">Recargar</button><button class="btn sm pri" data-bjact="sync">Pasar ya los aceptados a la app</button></div>
+  ${S.bjErr?`<div class="notice bad"><b>No se pudo leer la bandeja</b>Revisa el enlace del script en Ajustes y que esté publicada la versión nueva.</div>`:""}
+  ${L.length?`<div class="bj">${L.map(card).join("")}</div>`:`<div class="empty">Bandeja vacía. Todo revisado.</div>`}`;
+}
+
+/* ---- Lista de exclusión ---- */
+function refsDe(textos){
+  const out=new Set();
+  for(const t of textos) for(const u of urlsDe(t)){
+    let m=u.match(/idealista\.com\/inmueble\/(\d+)/); if(m) out.add("idealista-"+m[1]);
+    m=u.match(/fotocasa\.es\/.*?\/(\d{6,})\/d/); if(m) out.add("fotocasa-"+m[1]);
+  }
+  return [...out];
+}
+
 const DOCS_BASE=["Hoja de encargo / exclusiva firmada","Nota simple actualizada","Escritura de propiedad","DNI/NIE de todos los titulares","Certificado de eficiencia energética y etiqueta","Último recibo del IBI","Certificado de la comunidad (al corriente de pago)","Certificado de deuda pendiente (si hay hipoteca)"];
 const DOCS_OTROS=["Documentación de herencia (si aplica)","Sentencia o convenio de divorcio (si aplica)","Estatutos de la comunidad (si aplica)"];
 function docsPara(i){
@@ -677,18 +729,21 @@ function vClientes(rol){
 }
 function frioRow(f){
   const cls=frioHoy(f)?"hoy":["Contactado","Videollamada"].includes(f.estado)?"aldia":"";
-  return `<div class="row ${cls}" role="button" tabindex="0" data-open="frio:${f._id}"><div class="main"><div class="t">${esc(f.anuncio||"Anuncio")}</div><div class="s">${esc([f.muni,f.tipo,f.m2?f.m2+" m²":"",f.portal,f.fDet?"detectado "+fdate(f.fDet):""].filter(Boolean).join(" · "))}</div>${contactHTML(f.tel,f.email)}${notaHTML("frio",f)}</div>
+  return `<div class="row ${cls}" role="button" tabindex="0" data-open="frio:${f._id}"><div class="main"><div class="t">${esc(f.anuncio||"Anuncio")}</div><div class="s">${esc([f.muni,f.tipo,f.m2?f.m2+" m²":"",f.portal,f.fDet?"detectado "+fdate(f.fDet):""].filter(Boolean).join(" · "))}</div>${contactHTML(f.tel,f.email)}${notaHTML("frio",f)}${!["Convertido","Descartado"].includes(f.estado)?`<div class="rowacts" data-stop><button class="btn pri" data-fa="conv:${f._id}">Pasar a vendedor</button><button class="btn" data-fa="inmo:${f._id}">Es inmobiliaria</button><button class="btn del" data-fa="desc:${f._id}">Descartar</button></div>`:""}</div>
   <div class="r">${faseChip(f.estado||"Nuevo")}<b style="color:var(--ink)">${eur(f.precio)}</b>${f.url?`<a href="${esc(f.url)}" target="_blank" rel="noopener" data-stop>Ver anuncio ↗</a>`:""}</div></div>`;
 }
 function vFrio(){
   const all=S.data.frio||[]; const q=(S.q.frio||"").toLowerCase(), f=S.filt.frio??"activos";
+  if(f==="bandeja") return frioCab(f)+bandejaHTML();
   let rows=all.filter(r=>!q||[r.anuncio,r.muni,r.tel,r.anunciante].join(" ").toLowerCase().includes(q));
   if(f==="activos") rows=rows.filter(r=>!["Convertido","Descartado"].includes(r.estado)); else if(f==="hoy") rows=rows.filter(frioHoy); else if(f) rows=rows.filter(r=>r.estado===f);
   rows.sort((a,b)=>(frioHoy(a)?0:1)-(frioHoy(b)?0:1)||String(b.fDet||"").localeCompare(String(a.fDet||"")));
-  return `<h2>Captación en frío</h2><p class="lede">Anuncios de las alertas de los portales, volcados automáticamente cada 15 minutos. Los que marques como «Es inmobiliaria» o «Descartar» salen de la app en unos minutos y quedan guardados en la hoja de captación (stock para cruces).</p>${errBlock(["frio"])}
-  <div class="tools"><input type="search" id="q-frio" placeholder="Buscar anuncio, municipio, teléfono…" value="${esc(S.q.frio||"")}"></div>
-  <div class="filters">${[["activos","Activos"],["hoy","Por llamar hoy"],["Nuevo","Nuevos"],["Contactado","Contactados"],["Videollamada","Videollamada"],["Convertido","Convertidos"],["Descartado","Descartados"],["","Todos"]].map(([k,l])=>`<button aria-pressed="${f===k}" data-filt="${k}">${l}</button>`).join("")}</div>
+  return frioCab(f)+`<div class="tools"><input type="search" id="q-frio" placeholder="Buscar anuncio, municipio, teléfono…" value="${esc(S.q.frio||"")}"></div>
   <div class="list" style="margin-top:10px">${rows.length?rows.map(frioRow).join(""):`<div class="empty">${all.length?"Nada con este filtro.":"Aún no ha entrado ningún anuncio."}</div>`}</div>`;
+}
+function frioCab(f){
+  return `<h2>Captación en frío</h2><p class="lede">Idealista entra solo (particulares). Fotocasa pasa primero por la <b>Bandeja Fotocasa</b>, donde lo revisas con foto. Lo que marques como «Es inmobiliaria» o «Descartar» sale de la app y queda guardado en la hoja de captación.</p>${errBlock(["frio"])}
+  <div class="filters">${(STOCK_URL?[["bandeja","📥 Bandeja Fotocasa"+(S.bandeja?" · "+S.bandeja.length:"")]]:[]).concat([["activos","Activos"],["hoy","Por llamar hoy"],["Nuevo","Nuevos"],["Contactado","Contactados"],["Videollamada","Videollamada"],["Convertido","Convertidos"],["Descartado","Descartados"],["","Todos"]]).map(([k,l])=>`<button aria-pressed="${f===k}" data-filt="${k}">${l}</button>`).join("")}</div>`;
 }
 function inmRow(i){
   const pct=num(i.docTot)?Math.round(num(i.docOk)/num(i.docTot)*100):null;
@@ -718,6 +773,7 @@ function vOps(){
   <h3>Calculadora rápida de honorarios</h3><div class="sec" style="margin-top:0">${calcHTML("qc",300000,"5%")}</div>`;
 }
 function calcHTML(id,precio,pct,hipo){
+  const v=(S.calc||{})[id]; if(v){ precio=v.p; pct=v.pct; hipo=v.h; }   // conserva lo escrito aunque la app se refresque
   return `<div class="inline"><label class="mini">Precio de venta<input type="number" inputmode="decimal" id="${id}-p" value="${precio||""}" data-calc="${id}"></label>
   <label class="mini">% honorarios<select id="${id}-pct" data-calc="${id}">${["5%","4%","3%","2%"].map(x=>`<option ${x===pct?"selected":""}>${x}</option>`).join("")}</select></label>
   <label class="mini">Hipoteca a cancelar<input type="number" inputmode="decimal" id="${id}-h" value="${hipo||""}" data-calc="${id}"></label></div>
@@ -757,7 +813,11 @@ function vHerramientas(){
    ["Seguridad Social (Import@ss)","Alta de autónomo, cuotas y certificados","https://portal.seg-social.gob.es/"],
    ["Portal del Notariado","Información sobre compraventa y notarías","https://www.notariado.org/"],
    ["Informes de precio (Idealista)","Precio por m² por municipio","https://www.idealista.com/sala-de-prensa/informes-precio-vivienda/"]];
-  return `<h2>Herramientas</h2><p class="lede">Accesos directos. En cada ficha de inmueble tienes además el enlace al mapa y al Catastro de esa vivienda, y la carpeta de Drive.</p>
+  return `<h2>Herramientas</h2>
+  <div class="sec"><h3>¿Puedo llamar? · Lista de exclusión</h3><p class="mini">Antes de llamar, mete el teléfono o el email del anuncio. Comprueba tu lista de «No contactar nunca». (Más adelante, también la Lista Robinson.) Verde significa que no está en tu lista, no que la llamada en frío sea legal: eso lo confirma el asesor.</p>
+  <div class="inline"><label class="mini">Teléfono<input id="ck-tel" inputmode="tel" placeholder="600 000 000"></label><label class="mini">Email<input id="ck-mail" type="email" placeholder="correo@ejemplo.com"></label><button class="btn pri" data-act="comprobar">Comprobar</button></div>
+  <div id="ck-out"></div></div>
+  <p class="lede">Accesos directos. En cada ficha de inmueble tienes además el enlace al mapa y al Catastro de esa vivienda, y la carpeta de Drive.</p>
   <div class="grid" style="margin-top:14px">${L.map(([t,d,u])=>`<a class="tile" href="${u}" target="_blank" rel="noopener"><b>${esc(t)} ↗</b><span>${esc(d)}</span></a>`).join("")}</div>
   <h3>Calculadora de honorarios y neto del vendedor</h3><div class="sec" style="margin-top:0">${calcHTML("ht",300000,"5%")}</div>
   <h3>Localizar una dirección</h3><div class="sec" style="margin-top:0"><div class="inline"><label class="mini">Dirección y municipio<input id="loc-q" placeholder="Calle, número, municipio"></label><button class="btn" data-act="loc">Abrir en Maps ↗</button><button class="btn" data-act="cat">Buscar en Catastro ↗</button></div></div>`;
@@ -768,7 +828,7 @@ function vAjustes(){
   <div class="sec"><h3>Datos fiscales y reglas</h3>${true?`<form class="form" id="frm-config">${T.config.f.map(d=>inputFor("config",d,c[d[0]])).join("")}</form><div class="actions"><button class="btn pri" data-act="saveconfig">Guardar</button></div>`:`<div class="empty">Cargando…</div>`}
   <p class="mini">La facturación está preparada pero no se activa hasta que marques la casilla, cuando te des de alta como autónomo.</p></div>
   <div class="sec"><h3>Conexión con Baserow</h3><p class="mini">Este dispositivo está conectado con un token de Baserow guardado solo en él.</p><div class="actions" style="justify-content:flex-start"><button class="btn del" data-act="logout">Cambiar token / cerrar sesión en este dispositivo</button></div></div>
-  <div class="sec"><h3>Stock de agencias</h3><p class="mini">Enlace de la aplicación web de la hoja de captación. Activa el cruce de compradores con el stock de inmobiliarias. Se guarda en este dispositivo.</p><div class="inline"><label class="mini">Enlace<input id="stock-url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(STOCK_URL||"")}"></label><button class="btn" data-act="savestock">Guardar</button></div>${STOCK_URL?`<p class="mini">${S.stockErr?"No se pudo leer el enlace.":S.stock?`Conectado · ${S.stock.length} viviendas de agencia`:"Guardado."}</p>`:""}</div>
+  <div class="sec"><h3>Enlace del script de captación</h3><p class="mini">Enlace /exec de la aplicación web de la hoja de captación. Activa la Bandeja Fotocasa, el stock de agencias para los cruces y la lista de exclusión. Se guarda en este dispositivo.</p><div class="inline"><label class="mini">Enlace<input id="stock-url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(STOCK_URL||"")}"></label><button class="btn" data-act="savestock">Guardar</button></div>${STOCK_URL?`<p class="mini">${S.stockErr?"No se pudo leer el enlace.":S.stock?`Conectado · ${S.stock.length} viviendas de agencia`:"Guardado."}</p>`:""}</div>
   <div class="sec"><h3>Plantillas y descargables</h3>
   <div class="list">${P.length?P.map(p=>`<div class="row" style="cursor:default"><div class="main"><div class="t">${esc(p.nombre)}</div><div class="s">${esc(p.cat||"")} ${/^https?:/.test(p.notas||"")?"":esc(p.notas||"")}</div></div><div class="r">${fileLinks(p.archivo)}${/^https?:/.test(p.notas||"")?`<a href="${esc(p.notas)}" target="_blank" rel="noopener">Abrir enlace ↗</a>`:""}${upBtn("plantillas",p._id,"archivo")}</div></div>`).join(""):`<div class="empty">Sin plantillas todavía.</div>`}</div>
   <div class="inline" style="margin-top:10px"><label class="mini">Nueva plantilla<input id="pl-n" placeholder="Hoja de exclusiva, documento de oferta, hoja de reserva…"></label><label class="mini">Enlace (opcional)<input id="pl-u" placeholder="https://drive.google.com/…"></label><button class="btn" data-act="addpl">Añadir</button></div>
@@ -892,6 +952,7 @@ function sheetCliente(c){
   ${vis.length?`<div class="sec"><h3>Visitas</h3>${vis.map(v=>`<p>${esc(fdt(v.fecha))} · <span class="chip link" data-open="inmuebles:${arr(v.inm)[0]}">${esc(linkNames(v,"inm","inmuebles"))}</span> ${chip(v.interes)} ${esc(v.fb||"")}</p>`).join("")}</div>`:""}
   <div class="sec"><h3>Historial · ${ints.length}</h3>${ints.length?`<div class="tl">${ints.map(x=>`<div class="it"><div class="d">${esc(fdt(x.fecha))}</div><div><b>${esc(x.tipo||"")}</b> ${x.resultado?chip(x.resultado):""}<div>${esc(x.nota||"")}</div></div></div>`).join("")}</div>`:`<p class="mini">Sin registros todavía.</p>`}</div>
   <div class="actions"><span style="margin-right:auto"></span>
+   <button class="btn del" data-act="nocontactar" title="Borra la ficha y guarda solo teléfono, email y referencias en la lista de exclusión">No contactar nunca (RGPD)</button>
    ${delBtn("clientes",c._id)}${c.arch?`<button class="btn pri" data-act="recuperar">Recuperar</button>`:`<button class="btn" data-act="archivar">Archivar</button>`}</div>`;
 }
 function quickForm(c,tipo){
@@ -1030,7 +1091,7 @@ document.addEventListener("click",async e=>{
     await act(el,async()=>{ await update(t,id,obj); await refresh(t,"clientes","inmuebles","operaciones"); },"Guardado"); drawSheet(); return; }
   const a=d.act; const sh=S.sheet;
   if(a==="logout"){ try{localStorage.removeItem("mg_token");}catch{} location.reload(); return; }
-  if(a==="savestock"){ const v=(($("#stock-url")||{}).value||"").trim(); if(v&&!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){toast("Pega el enlace que termina en /exec");return;} try{ v?localStorage.setItem("mg_stock",v):localStorage.removeItem("mg_stock"); }catch{} STOCK_URL=v||null; S.stock=null; S.stockErr=false; if(v) await loadStock(true); toast(v?(S.stockErr?"No se pudo leer el enlace":"Stock conectado · "+(S.stock||[]).length+" viviendas"):"Quitado"); render(); return; }
+  if(a==="savestock"){ const v=(($("#stock-url")||{}).value||"").trim(); if(v&&!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){toast("Pega el enlace que termina en /exec");return;} try{ v?localStorage.setItem("mg_stock",v):localStorage.removeItem("mg_stock"); }catch{} STOCK_URL=v||null; S.stock=null; S.stockErr=false; S.bandeja=null; if(v) await loadStock(true); toast(v?(S.stockErr?"No se pudo leer el enlace":"Stock conectado · "+(S.stock||[]).length+" viviendas"):"Quitado"); render(); return; }
   if(a==="savetoken"){ const v=($("#tok")||{}).value||""; if(v.trim().length<20){toast("Pega el token completo");return;} try{localStorage.setItem("mg_token",v.trim());}catch{} location.reload(); return; } const cur=sh&&sh.id?byId(sh.t,sh.id):null;
   if(a==="loc"){ const q=$("#loc-q").value; if(q) window.open("https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q),"_blank"); return; }
   if(a==="cat"){ window.open("https://www.sedecatastro.gob.es/","_blank"); return; }
@@ -1067,6 +1128,26 @@ document.addEventListener("click",async e=>{
       await update("config",c._id||"main",{prox:n+1}); await refresh("facturas","config","operaciones"); },"Factura "+numF+" creada"); drawSheet(); return; }
   if(a==="saveconfig"){ const c=cfg(); const obj=readForm("config",c); if(!Object.keys(obj).length){toast("Sin cambios");return;} await act(el,async()=>{await update("config",c._id||"main",obj);await refresh("config");},"Guardado"); render(); return; }
   if(a==="addpl"){ const n=$("#pl-n").value.trim(); if(!n) return; await act(el,async()=>{await create("plantillas",{nombre:n,notas:$("#pl-u").value.trim()||null});await refresh("plantillas");},"Añadida"); render(); return; }
+  if(a==="comprobar"){ const tel=($("#ck-tel")||{}).value||"", mail=($("#ck-mail")||{}).value||""; const out=$("#ck-out");
+    if(!tel.trim()&&!mail.trim()){ toast("Escribe un teléfono o un email"); return; }
+    el.disabled=true; try{ const r=await script({accion:"comprobar",tel,email:mail});
+      out.innerHTML=r.enLista?`<div class="semaforo no">⛔ Está en tu lista de exclusión (${esc(r.por.join(" y "))}). No llamar.</div>`:`<div class="semaforo ok">✓ No está en tu lista de exclusión.</div>`;
+    }catch(err){ out.innerHTML=`<div class="semaforo no">${esc(err.message)}</div>`; } el.disabled=false; return; }
+  if(a==="nocontactar"){ const c=cur; if(!c) return;
+    if(!STOCK_URL){ toast("Primero pega el enlace del script en Ajustes"); return; }
+    if(!confirm("«"+(c.nombre||"Este contacto")+"» no quiere ser contactado.\n\nSe borrará su ficha de la app y solo se guardarán en la lista de exclusión su teléfono, su email y las referencias de sus anuncios, para no volver a contactarle.\n\n¿Continuar?")) return;
+    await act(el,async()=>{
+      const integ=(S.data.integrantes||[]).filter(x=>arr(x.cliente).includes(c._id));
+      const frios=(S.data.frio||[]).filter(x=>arr(x.cli).includes(c._id));
+      const inm=arr(c.propiedad).map(id=>byId("inmuebles",id)).filter(Boolean)[0]||frios[0]||{};
+      const tels=[c.tel,...integ.map(x=>x.tel),...frios.map(x=>x.tel)].filter(Boolean);
+      const mails=[c.email,...integ.map(x=>x.email),...frios.map(x=>x.email)].filter(Boolean);
+      const refs=[...new Set(refsDe([c.notas,...frios.map(x=>x.url),...frios.map(x=>x.notas)]).concat(frios.map(x=>x.idAn).filter(Boolean)))];
+      const n=Math.max(tels.length,mails.length,1);
+      for(let i=0;i<n;i++) await script({accion:"excluir",tel:tels[i]||"",email:mails[i]||"",ref:i===0?refs.join(","):"",muni:i===0?(inm.muni||""):"",m2:i===0?(inm.m2||""):"",hab:i===0?(inm.hab||""):""});
+      if(frios.length) await remove("frio",frios.map(x=>x._id));
+      await borrar("clientes",c._id); await refresh("clientes","frio");
+    },"Borrado y añadido a la lista de exclusión"); closeSheet(); return; }
   if(a==="convertir"){ const f=cur; await act(el,async()=>{ const id=await create("clientes",{nombre:f.anunciante||f.anuncio,rol:["Vendedor"],tel:f.tel,email:f.email,origen:"Captación en frío",fase:"Nuevo",nivel:1,prox:today(),notas:[f.notas,f.url].filter(Boolean).join("\n")});
       await update("frio",f._id,{estado:"Convertido",cli:[id]}); await refresh("clientes","frio"); S.newId=id; },"Convertido en vendedor"); if(S.newId) openSheet("clientes",S.newId); return; }
   if(a==="frio-cont"){ await act(el,async()=>{await update("frio",cur._id,{estado:"Contactado",prox:addDays(3)});await refresh("frio");},"Hecho"); drawSheet(); return; }
@@ -1089,8 +1170,28 @@ document.addEventListener("focusout",()=>{ if(S.pending&&!S.sheet){ setTimeout((
 document.addEventListener("change",async e=>{
   const s=e.target.closest("[data-docst]"); if(s){ const v=s.value; s.disabled=true; await act(null,async()=>{await update("documentos",s.dataset.docst,v==="Recibido"?{estado:v,fRec:today()}:{estado:v});await refresh("documentos","inmuebles");}); drawSheet(); return; }
 });
-document.addEventListener("input",e=>{ const c=e.target.closest("[data-calc]"); if(c){ const id=c.dataset.calc; $("#"+id+"-out").innerHTML=calcOut($("#"+id+"-p").value,$("#"+id+"-pct").value,$("#"+id+"-h").value); }});
+document.addEventListener("input",e=>{ const c=e.target.closest("[data-calc]"); if(c){ const id=c.dataset.calc; S.calc=S.calc||{}; S.calc[id]={p:($("#"+id+"-p")||{}).value,pct:($("#"+id+"-pct")||{}).value,h:($("#"+id+"-h")||{}).value}; $("#"+id+"-out").innerHTML=calcOut($("#"+id+"-p").value,$("#"+id+"-pct").value,$("#"+id+"-h").value); }});
+document.addEventListener("change",e=>{ const c=e.target.closest("[data-calc]"); if(c){ const id=c.dataset.calc; S.calc=S.calc||{}; S.calc[id]={p:($("#"+id+"-p")||{}).value,pct:($("#"+id+"-pct")||{}).value,h:($("#"+id+"-h")||{}).value}; $("#"+id+"-out").innerHTML=calcOut($("#"+id+"-p").value,$("#"+id+"-pct").value,$("#"+id+"-h").value); }});
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&S.sheet) closeSheet(); if(e.key==="Enter"&&e.target.matches(".row[role=button]")) e.target.click(); });
+/* botones rápidos del listado de captación en frío */
+document.addEventListener("click",async e=>{
+  const b=e.target.closest("[data-fa]"); if(!b) return;
+  const [k,id]=b.dataset.fa.split(":"); const f=byId("frio",id); if(!f) return;
+  if(k==="conv"){ await act(b,async()=>{ const cid=await create("clientes",{nombre:f.anunciante||f.anuncio,rol:["Vendedor"],tel:f.tel,email:f.email,origen:"Captación en frío",fase:"Nuevo",nivel:1,prox:today(),notas:[f.notas,f.url].filter(Boolean).join("\n")});
+      await update("frio",f._id,{estado:"Convertido",cli:[cid]}); await refresh("clientes","frio"); },"Pasado a vendedores"); render(); return; }
+  const inmo=k==="inmo";
+  await act(b,async()=>{ await update("frio",f._id,{estado:"Descartado",notas:(inmo?"[Inmobiliaria] ":"")+(f.notas||"")}); await refresh("frio"); },inmo?"Marcado como inmobiliaria":"Descartado"); render();
+});
+/* bandeja Fotocasa */
+document.addEventListener("click",async e=>{
+  const a=e.target.closest("[data-bjact]");
+  if(a){ if(a.dataset.bjact==="recargar"){ S.bandeja=null; render(); return; }
+    await act(a,async()=>{ await script({accion:"sincronizar"}); await loadAll(true); },"Aceptados pasados a la app"); return; }
+  const b=e.target.closest("[data-bj]"); if(!b) return;
+  const i=b.dataset.bj.indexOf(":"), d=b.dataset.bj.slice(0,i), id=b.dataset.bj.slice(i+1);
+  const ok=await act(b,()=>script({accion:"decidir",id,d}),{aceptar:"Aceptado: entra en la app en la próxima pasada",agencia:"Al stock de agencias",descartar:"Descartado"}[d]);
+  if(ok){ S.bandeja=(S.bandeja||[]).filter(x=>String(x.id)!==id); render(); }
+});
 /* notas editables desde los listados */
 document.addEventListener("click",async e=>{
   if(e.target.closest("a")) return;
