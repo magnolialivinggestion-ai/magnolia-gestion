@@ -533,7 +533,12 @@ let STOCK_URL=null; try{ STOCK_URL=localStorage.getItem("mg_stock"); }catch{}
 const TIPO_MAP=[[/pareado/,"Pareado"],[/adosad/,"Adosado"],[/chalet|independiente/,"Chalet independiente"],[/ático|atico/,"Ático"],[/dúplex|duplex/,"Dúplex"],[/estudio|loft/,"Estudio"],[/rústic|rustic|finca/,"Casa rústica"],[/villa/,"Villa"],[/piso|apartamento|planta baja/,"Piso"]];
 const tipoStd=t=>{ const v=String(t||"").toLowerCase(); const m=TIPO_MAP.find(([re])=>re.test(v)); return m?m[1]:String(t||""); };
 // JSONP: Google no siempre deja leer la aplicación web con fetch desde otra web; con <script> sí
-function jsonp(url){ return new Promise((res,rej)=>{ const cb="mgStock"+Date.now(); const sc=document.createElement("script");
+// Lectura del script: 1º sin cookies (evita el lío de varias cuentas de Google en el móvil), 2º JSONP
+async function jsonp(url){
+  try{ const r=await fetch(url,{credentials:"omit",redirect:"follow",cache:"no-store"}); const t=await r.text(); return JSON.parse(t); }
+  catch(e){ return jsonpScript(url); }
+}
+function jsonpScript(url){ return new Promise((res,rej)=>{ const cb="mgStock"+Date.now()+Math.floor(Math.random()*1e4); const sc=document.createElement("script");
   const end=()=>{ clearTimeout(to); delete window[cb]; sc.remove(); }; const to=setTimeout(()=>{ end(); rej(new Error("timeout")); },20000);
   window[cb]=d=>{ end(); res(d); }; sc.onerror=()=>{ end(); rej(new Error("load")); };
   sc.src=url+(url.includes("?")?"&":"?")+"callback="+cb; document.head.appendChild(sc); }); }
